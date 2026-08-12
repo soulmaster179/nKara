@@ -5,12 +5,14 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.media.MediaPlayer
 import android.view.KeyEvent
+import android.view.WindowManager
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -34,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.Canvas
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -44,12 +48,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.core.view.WindowCompat
@@ -72,7 +79,11 @@ import androidx.media3.ui.PlayerView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.ntech.nkara.core.model.Song
+import com.ntech.nkara.core.model.AudienceReaction
 import com.ntech.nkara.feature.karaoke.presentation.KaraUiEvent
 import com.ntech.nkara.feature.karaoke.presentation.KaraUiState
 import com.ntech.nkara.feature.karaoke.presentation.KaraViewModel
@@ -91,6 +102,7 @@ import kotlin.math.sin
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         enableEdgeToEdge()
         setContent {
             MaterialTheme(
@@ -242,6 +254,15 @@ private fun ControllerPlaceholder(
 @Composable
 private fun KaraRoute(viewModel: KaraViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val latestViewModel by rememberUpdatedState(viewModel)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) latestViewModel.pauseForBackground()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     KaraScreen(
         uiState = uiState,
         onEvent = viewModel::onEvent,
@@ -286,10 +307,10 @@ private fun HostPlaybackScreen(
 ) {
     var showConnectionOverlay by remember { mutableStateOf(false) }
     var overlayNonce by remember { mutableStateOf(0) }
-    val hostEventKey = "${uiState.currentSong?.queueId}:${uiState.queuedSongs.joinToString { it.queueId }}:${uiState.connectedControllerCount}:$overlayNonce"
+    val hostEventKey = "${uiState.currentSong?.queueId}:${uiState.nextSong?.queueId}:${uiState.queuedSongs.size}:${uiState.latestNotice?.nonce}:$overlayNonce"
     LaunchedEffect(hostEventKey) {
         showConnectionOverlay = true
-        delay(5_000)
+        delay(30_000)
         showConnectionOverlay = false
     }
     LaunchedEffect(Unit) {
@@ -331,11 +352,27 @@ private fun HostPlaybackScreen(
         uiState.karaokeScore?.let { score ->
             ScoreRouletteOverlay(score)
         }
+        uiState.latestReaction?.let { event ->
+            AudienceReactionOverlay(event.reaction, event.nonce)
+        }
         AnimatedVisibility(
             visible = showConnectionOverlay,
-            modifier = Modifier.align(Alignment.TopEnd).padding(24.dp),
+            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
         ) {
-            Card(
+            Column(Modifier.fillMaxWidth().background(Color(0xE60A111C))) {
+                Text(
+                    "  ${uiState.latestNotice?.let { "${it.action.uppercase()}  •  ${it.title}     —     " }.orEmpty()}ĐANG PHÁT  •  ${uiState.currentSong?.title ?: "Chưa có bài"}     —     BÀI KẾ TIẾP  •  ${uiState.nextSong?.title ?: "Chưa có bài"}     —     CÒN LẠI  •  ${uiState.queuedSongs.size} BÀI     ",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    maxLines = 1,
+                    modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 500, velocity = 42.dp),
+                )
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp), horizontalArrangement = Arrangement.End) {
+                    Text("Kết nối: ${uiState.hostAddress}  •  ${uiState.connectedControllerCount} máy", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            if (false) Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xE617212B)),
                 elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
             ) {
@@ -348,6 +385,46 @@ private fun HostPlaybackScreen(
         }
     }
 }
+
+@Composable
+private fun AudienceReactionOverlay(reaction: AudienceReaction, nonce: Long) {
+    val context = LocalContext.current
+    val progress = remember(nonce) { Animatable(0f) }
+    val applause = remember(nonce, reaction) {
+        if (reaction == AudienceReaction.Applause || reaction == AudienceReaction.Cheer) {
+            MediaPlayer.create(context, R.raw.applause_cheers)
+        } else null
+    }
+    DisposableEffect(applause) { onDispose { applause?.release() } }
+    LaunchedEffect(nonce) {
+        applause?.start()
+        progress.animateTo(1f, animationSpec = tween(2_200))
+    }
+    val particles = remember(nonce) {
+        List(28) { index ->
+            val random = kotlin.random.Random(nonce + index * 997L)
+            ReactionParticle(random.nextFloat(), random.nextFloat() * 0.35f, random.nextInt(28, 60), random.nextInt(-100, 101))
+        }
+    }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        particles.forEach { particle ->
+            val local = ((progress.value - particle.delayFraction) / (1f - particle.delayFraction)).coerceIn(0f, 1f)
+            val alpha = if (local < 0.78f) local.coerceAtMost(1f) else ((1f - local) / 0.22f).coerceIn(0f, 1f)
+            Text(
+                reaction.emoji,
+                fontSize = particle.sizeSp.sp,
+                modifier = Modifier
+                    .offset(
+                        x = maxWidth * particle.xFraction + (particle.sway * kotlin.math.sin(local * Math.PI)).toFloat().dp,
+                        y = maxHeight * (1f - local) - 40.dp,
+                    )
+                    .graphicsLayer(alpha = alpha, rotationZ = particle.sway * local * 0.18f),
+            )
+        }
+    }
+}
+
+private data class ReactionParticle(val xFraction: Float, val delayFraction: Float, val sizeSp: Int, val sway: Int)
 
 @Composable
 private fun ScoreRouletteOverlay(finalScore: Int) {

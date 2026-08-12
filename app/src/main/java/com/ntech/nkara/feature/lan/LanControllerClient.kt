@@ -2,6 +2,7 @@ package com.ntech.nkara.feature.lan
 
 import android.content.Context
 import com.ntech.nkara.core.model.Song
+import com.ntech.nkara.core.model.AudienceReaction
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -17,6 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import org.json.JSONObject
 
 data class RemoteQueueSnapshot(
@@ -37,6 +39,7 @@ class LanControllerClient @Inject constructor(
     private val preferences = context.getSharedPreferences("lan_controller", Context.MODE_PRIVATE)
     private var socket: Socket? = null
     private var writer: BufferedWriter? = null
+    @Volatile private var shouldReconnect = true
 
     private val _connectionStatus = MutableStateFlow("Chua ket noi Host")
     val connectionStatus = _connectionStatus.asStateFlow()
@@ -45,9 +48,13 @@ class LanControllerClient @Inject constructor(
     private val _snapshot = MutableStateFlow(RemoteQueueSnapshot())
     val snapshot = _snapshot.asStateFlow()
 
-    fun connect(address: String) = startConnection(address, closeExisting = true)
+    fun connect(address: String) {
+        shouldReconnect = true
+        startConnection(address, closeExisting = true)
+    }
 
     fun disconnect() {
+        shouldReconnect = false
         runCatching { socket?.close() }
         synchronized(lock) {
             socket = null
@@ -70,6 +77,9 @@ class LanControllerClient @Inject constructor(
     fun next() = send(JSONObject().put("type", "next"))
     fun play() = send(JSONObject().put("type", "play"))
     fun pause() = send(JSONObject().put("type", "pause"))
+    fun react(reaction: AudienceReaction) = send(
+        JSONObject().put("type", "reaction").put("reaction", reaction.name),
+    )
     fun savedHostAddress(): String = preferences.getString(LAST_HOST_ADDRESS, "").orEmpty()
 
     private fun startConnection(address: String, closeExisting: Boolean) {
@@ -86,8 +96,12 @@ class LanControllerClient @Inject constructor(
         _connectionStatus.value = "Dang ket noi $host:$port"
 
         scope.launch {
-            runCatching {
-                Socket(host, port).also { connected ->
+            var retryDelayMs = INITIAL_RETRY_DELAY_MS
+            while (shouldReconnect) {
+                val connection = runCatching {
+                    Socket(host, port).also { connected ->
+                        connected.keepAlive = true
+                        connected.tcpNoDelay = true
                     synchronized(lock) {
                         socket = connected
                         writer = BufferedWriter(OutputStreamWriter(connected.getOutputStream()))
@@ -98,11 +112,18 @@ class LanControllerClient @Inject constructor(
                     flushPendingCommands()
                     BufferedReader(InputStreamReader(connected.getInputStream())).forEachLine(::handleMessage)
                 }
-            }.onFailure { error ->
-                _connectionStatus.value = "Mat ket noi: ${error.javaClass.simpleName}"
+                }
+                closeSocket()
+                _isConnected.value = false
+                if (!shouldReconnect) break
+                _connectionStatus.value = if (connection.isFailure) {
+                    "Mất kết nối · tự nối lại…"
+                } else {
+                    "Kết nối gián đoạn · tự nối lại…"
+                }
+                delay(retryDelayMs)
+                retryDelayMs = (retryDelayMs * 2).coerceAtMost(MAX_RETRY_DELAY_MS)
             }
-            closeSocket()
-            _isConnected.value = false
             isConnecting.set(false)
         }
     }
@@ -169,5 +190,7 @@ class LanControllerClient @Inject constructor(
     private companion object {
         const val DEFAULT_PORT = 8877
         const val LAST_HOST_ADDRESS = "last_host_address"
+        const val INITIAL_RETRY_DELAY_MS = 1_000L
+        const val MAX_RETRY_DELAY_MS = 15_000L
     }
 }

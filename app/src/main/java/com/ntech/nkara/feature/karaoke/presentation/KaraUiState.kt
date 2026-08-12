@@ -2,6 +2,8 @@ package com.ntech.nkara.feature.karaoke.presentation
 
 import com.ntech.nkara.core.model.Song
 import com.ntech.nkara.data.remote.NativePlaybackSource
+import com.ntech.nkara.core.model.AudienceReactionEvent
+import com.ntech.nkara.feature.lan.HostNotice
 
 data class KaraUiState(
     val currentSong: Song? = null,
@@ -13,6 +15,8 @@ data class KaraUiState(
     val playbackSource: NativePlaybackSource? = null,
     val playbackError: String? = null,
     val karaokeScore: Int? = null,
+    val latestReaction: AudienceReactionEvent? = null,
+    val latestNotice: HostNotice? = null,
 ) {
     val nextSong: Song? get() = queuedSongs.firstOrNull()
 }

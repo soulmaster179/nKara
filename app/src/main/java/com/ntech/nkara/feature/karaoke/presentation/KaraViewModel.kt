@@ -73,8 +73,12 @@ class KaraViewModel @Inject constructor(
         state.copy(playbackSource = source, playbackError = error, karaokeScore = score)
     }
 
-    val uiState = combine(queueUiState, lanHostServer.connectedClientCount) { state, controllerCount ->
-        state.copy(connectedControllerCount = controllerCount)
+    private val hostConnectionState = combine(lanHostServer.connectedClientCount, lanHostServer.latestReaction, lanHostServer.latestNotice) { count, reaction, notice ->
+        Triple(count, reaction, notice)
+    }
+
+    val uiState = combine(queueUiState, hostConnectionState) { state, hostState ->
+        state.copy(connectedControllerCount = hostState.first, latestReaction = hostState.second, latestNotice = hostState.third)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), KaraUiState())
 
     fun onEvent(event: KaraUiEvent) {
@@ -108,6 +112,10 @@ class KaraViewModel @Inject constructor(
 
     fun updatePlaybackProgress(positionMs: Long, durationMs: Long) {
         lanHostServer.updatePlaybackProgress(positionMs, durationMs)
+    }
+
+    fun pauseForBackground() {
+        if (queueStore.isPlaying.value) queueStore.pause()
     }
 
     private fun advanceQueue() {

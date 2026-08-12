@@ -88,6 +88,7 @@ dependencies {
     implementation(libs.okhttp)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(libs.zxing.core)
+    implementation(libs.google.play.services.auth)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -12,11 +12,26 @@ interface SongDao {
     @Query("SELECT * FROM favorite_songs ORDER BY addedAtEpochMillis DESC")
     fun observeFavorites(): Flow<List<FavoriteSongEntity>>
 
+    @Query("SELECT * FROM favorite_songs WHERE videoId = :videoId LIMIT 1")
+    suspend fun favoriteById(videoId: String): FavoriteSongEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertFavorite(song: FavoriteSongEntity)
 
     @Delete
     suspend fun deleteFavorite(song: FavoriteSongEntity)
+
+    @Query("DELETE FROM favorite_songs WHERE videoId = :videoId")
+    suspend fun deleteFavoriteById(videoId: String)
+
+    @Query("DELETE FROM favorite_songs")
+    suspend fun clearFavorites()
+
+    @androidx.room.Transaction
+    suspend fun replaceFavorites(songs: List<FavoriteSongEntity>) {
+        clearFavorites()
+        songs.forEach { upsertFavorite(it) }
+    }
 
     @Insert
     suspend fun insertHistory(entry: SingingHistoryEntity)

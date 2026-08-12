@@ -19,6 +19,7 @@ zxing = "3.5.3"
 coil = "2.7.0"
 okhttp = "5.4.0"
 desugarJdkLibs = "2.1.5"
+playServicesAuth = "21.6.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -49,6 +50,7 @@ androidx-media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exop
 androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 newpipe-extractor = { group = "com.github.TeamNewPipe", name = "NewPipeExtractor", version.ref = "newPipeExtractor" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
+google-play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "playServicesAuth" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

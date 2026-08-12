@@ -1,6 +1,8 @@
 package com.ntech.nkara.feature.lan
 
 import com.ntech.nkara.core.model.Song
+import com.ntech.nkara.core.model.AudienceReaction
+import com.ntech.nkara.core.model.AudienceReactionEvent
 import com.ntech.nkara.feature.karaoke.domain.QueueStore
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -34,6 +36,10 @@ class LanHostServer @Inject constructor(
     private val _connectedClientCount = MutableStateFlow(0)
     val connectedClientCount: StateFlow<Int> = _connectedClientCount.asStateFlow()
     private val playbackProgress = MutableStateFlow(PlaybackProgress())
+    private val _latestReaction = MutableStateFlow<AudienceReactionEvent?>(null)
+    val latestReaction: StateFlow<AudienceReactionEvent?> = _latestReaction.asStateFlow()
+    private val _latestNotice = MutableStateFlow<HostNotice?>(null)
+    val latestNotice: StateFlow<HostNotice?> = _latestNotice.asStateFlow()
     private var serverSocket: ServerSocket? = null
     private var acceptJob: Job? = null
     private var stateJob: Job? = null
@@ -87,13 +93,32 @@ class LanHostServer @Inject constructor(
             "add" -> extractVideoId(command.optString("input"))?.let { videoId ->
                 val title = command.optString("title").ifBlank { "YouTube: $videoId" }
                 val song = Song(videoId = videoId, title = title)
-                if (command.optBoolean("priority", false)) queueStore.addAsPriority(song) else queueStore.add(song)
+                if (command.optBoolean("priority", false)) {
+                    queueStore.addAsPriority(song)
+                    _latestNotice.value = HostNotice("Đã ưu tiên bài", title)
+                } else {
+                    queueStore.add(song)
+                    _latestNotice.value = HostNotice("Đã thêm bài", title)
+                }
             }
-            "prioritize" -> queueStore.prioritize(command.optString("queueId"))
-            "remove" -> queueStore.remove(command.optString("queueId"))
-            "next" -> queueStore.next()
-            "play" -> queueStore.play()
-            "pause" -> queueStore.pause()
+            "prioritize" -> command.optString("queueId").let { queueId ->
+                queueStore.queuedSongs.value.firstOrNull { it.queueId == queueId }?.let { song ->
+                    queueStore.prioritize(queueId)
+                    _latestNotice.value = HostNotice("Đã ưu tiên bài", song.title)
+                }
+            }
+            "remove" -> command.optString("queueId").let { queueId ->
+                queueStore.queuedSongs.value.firstOrNull { it.queueId == queueId }?.let { song ->
+                    queueStore.remove(queueId)
+                    _latestNotice.value = HostNotice("Đã xóa bài", song.title)
+                }
+            }
+            "next" -> { queueStore.next(); _latestNotice.value = HostNotice("Đã chuyển bài", "Bài tiếp theo") }
+            "play" -> { queueStore.play(); _latestNotice.value = HostNotice("Điều khiển", "Tiếp tục phát") }
+            "pause" -> { queueStore.pause(); _latestNotice.value = HostNotice("Điều khiển", "Tạm dừng") }
+            "reaction" -> runCatching {
+                AudienceReaction.valueOf(command.optString("reaction"))
+            }.getOrNull()?.let { _latestReaction.value = AudienceReactionEvent(it) }
         }
     }
 
@@ -138,3 +163,4 @@ class LanHostServer @Inject constructor(
 }
 
 private data class PlaybackProgress(val positionMs: Long = 0, val durationMs: Long = 0)
+data class HostNotice(val action: String, val title: String, val nonce: Long = System.nanoTime())
